@@ -160,7 +160,7 @@ def calculate_uptime_downtime(
     considering business hours.
 
     Args:
-        session:  The database session.
+        session: The database session.
         store_id: The ID of the store.
         start_time: The start time of the period (datetime object in UTC).
         end_time: The end time of the period (datetime object in UTC).
@@ -171,11 +171,17 @@ def calculate_uptime_downtime(
     timezone_str = get_store_timezone(session, store_id)
     local_timezone = pytz.timezone(timezone_str)
 
-    # Convert start and end times to the store's local timezone.
+    # Convert times to store's local timezone
     local_start_time = start_time.replace(tzinfo=timezone.utc).astimezone(local_timezone)
     local_end_time = end_time.replace(tzinfo=timezone.utc).astimezone(local_timezone)
 
-    # Fetch store status data within the given time range.
+    # Get the latest status before start_time to know the initial state
+    initial_status = session.query(StoreStatus).filter(
+        StoreStatus.store_id == store_id,
+        StoreStatus.timestamp_utc <= start_time
+    ).order_by(StoreStatus.timestamp_utc.desc()).first()
+
+    # Fetch store status data within the given time range
     status_records = session.query(StoreStatus).filter(
         StoreStatus.store_id == store_id,
         StoreStatus.timestamp_utc >= start_time,
@@ -184,28 +190,113 @@ def calculate_uptime_downtime(
 
     uptime = 0
     downtime = 0
-    # Iterate through the status records, considering business hours.
-    for i in range(len(status_records) - 1):
-        record1 = status_records[i]
-        record2 = status_records[i + 1]
-        status1 = record1.status
-        status2 = record2.status
 
-        # Convert record timestamps to store's local time.
-        local_record1_time = record1.timestamp_utc.replace(tzinfo=timezone.utc).astimezone(local_timezone)
-        local_record2_time = record2.timestamp_utc.replace(tzinfo=timezone.utc).astimezone(local_timezone)
-
-        day_of_week = local_record1_time.weekday()
+    # If no records at all, consider the entire period as downtime
+    if not initial_status and not status_records:
+        day_of_week = local_start_time.weekday()
         business_start_minutes, business_end_minutes = get_business_hours(session, store_id, day_of_week)
+        
+        interval_start_minutes = local_start_time.hour * 60 + local_start_time.minute
+        interval_end_minutes = local_end_time.hour * 60 + local_end_time.minute
+        
+        overlap_minutes = calculate_overlap(
+            business_start_minutes,
+            business_end_minutes,
+            interval_start_minutes,
+            interval_end_minutes
+        )
+        downtime += overlap_minutes
+        return uptime, downtime
 
-        interval_start_minutes = local_record1_time.hour * 60 + local_record1_time.minute
-        interval_end_minutes = local_record2_time.hour * 60 + local_record2_time.minute
-        overlap_minutes = calculate_overlap(business_start_minutes, business_end_minutes, interval_start_minutes, interval_end_minutes)
-        if overlap_minutes > 0:
-            if status1 == 'active':
+    current_time = local_start_time
+    current_status = initial_status.status if initial_status else 'inactive'
+
+    # Process all status changes within the time range
+    all_status_points = []
+    
+    # Add start time with initial status
+    all_status_points.append((local_start_time, current_status))
+    
+    # Add all status changes
+    for record in status_records:
+        local_record_time = record.timestamp_utc.replace(tzinfo=timezone.utc).astimezone(local_timezone)
+        if local_record_time > local_start_time and local_record_time < local_end_time:
+            all_status_points.append((local_record_time, record.status))
+    
+    # Add end time with last known status
+    last_status = status_records[-1].status if status_records else current_status
+    all_status_points.append((local_end_time, last_status))
+
+    # Calculate uptime/downtime between each consecutive pair of points
+    for i in range(len(all_status_points) - 1):
+        current_point = all_status_points[i]
+        next_point = all_status_points[i + 1]
+        
+        current_time = current_point[0]
+        next_time = next_point[0]
+        current_status = current_point[1]
+
+        # If times are on different days, split the calculation
+        if current_time.date() != next_time.date():
+            # Handle current day until midnight
+            day_end = current_time.replace(hour=23, minute=59, second=59)
+            day_of_week = current_time.weekday()
+            business_start_minutes, business_end_minutes = get_business_hours(session, store_id, day_of_week)
+            
+            interval_start_minutes = current_time.hour * 60 + current_time.minute
+            interval_end_minutes = 23 * 60 + 59
+            
+            overlap_minutes = calculate_overlap(
+                business_start_minutes,
+                business_end_minutes,
+                interval_start_minutes,
+                interval_end_minutes
+            )
+            
+            if current_status == 'active':
                 uptime += overlap_minutes
             else:
                 downtime += overlap_minutes
+
+            # Handle next day from midnight until next_time
+            day_start = next_time.replace(hour=0, minute=0, second=0)
+            day_of_week = next_time.weekday()
+            business_start_minutes, business_end_minutes = get_business_hours(session, store_id, day_of_week)
+            
+            interval_start_minutes = 0
+            interval_end_minutes = next_time.hour * 60 + next_time.minute
+            
+            overlap_minutes = calculate_overlap(
+                business_start_minutes,
+                business_end_minutes,
+                interval_start_minutes,
+                interval_end_minutes
+            )
+            
+            if current_status == 'active':
+                uptime += overlap_minutes
+            else:
+                downtime += overlap_minutes
+        else:
+            # Same day calculation
+            day_of_week = current_time.weekday()
+            business_start_minutes, business_end_minutes = get_business_hours(session, store_id, day_of_week)
+            
+            interval_start_minutes = current_time.hour * 60 + current_time.minute
+            interval_end_minutes = next_time.hour * 60 + next_time.minute
+            
+            overlap_minutes = calculate_overlap(
+                business_start_minutes,
+                business_end_minutes,
+                interval_start_minutes,
+                interval_end_minutes
+            )
+            
+            if current_status == 'active':
+                uptime += overlap_minutes
+            else:
+                downtime += overlap_minutes
+
     return uptime, downtime
 
 def generate_store_report(session, store_id: str, now: datetime) -> Dict[str, float]:
@@ -214,12 +305,11 @@ def generate_store_report(session, store_id: str, now: datetime) -> Dict[str, fl
     Args:
         session: The database session.
         store_id: The ID of the store.
-        now:  The current time (datetime object in UTC).
+        now: The current time (datetime object in UTC).
 
     Returns:
         A dictionary containing the uptime and downtime metrics for the store.
     """
-
     # Calculate time ranges
     last_hour_start = now - timedelta(hours=1)
     last_day_start = now - timedelta(days=1)
@@ -234,11 +324,11 @@ def generate_store_report(session, store_id: str, now: datetime) -> Dict[str, fl
     return {
         'store_id': store_id,
         'uptime_last_hour': uptime_last_hour,
-        'uptime_last_day': uptime_last_day / 60,  # in hours
-        'uptime_last_week': uptime_last_week / 60, # in hours
+        'uptime_last_day': uptime_last_day / 60,  # Convert to hours
+        'uptime_last_week': uptime_last_week / 60,  # Convert to hours
         'downtime_last_hour': downtime_last_hour,
-        'downtime_last_day': downtime_last_day / 60, # in hours
-        'downtime_last_week': downtime_last_week / 60, # in hours
+        'downtime_last_day': downtime_last_day / 60,  # Convert to hours
+        'downtime_last_week': downtime_last_week / 60  # Convert to hours
     }
 
 def generate_report_csv(session: sessionmaker) -> str:
