@@ -174,6 +174,6 @@ The system calculates uptime/downtime within business hours using the following 
    - Create a dashboard for report visualization
 
 ## Sample Output
-A sample report output can be found in [sample_output.csv](https://drive.google.com/file/d/12K1WsjUnmFt1JLxyrn5qnttzraRym2h4/view?usp=sharing) in this repository.
+A sample report output can be found in [sample_output.csv](https://drive.google.com/file/d/1vYXZRNAZeBoD3KxO9fC0XMV0t7NUwqXh/view?usp=sharing) in this repository.
 
 [Link to video demo](https://www.loom.com/share/2ec126b96357447ca0a7377a3b66362f?sid=305a9d02-ab69-4c23-91b0-47dba49b4fe2)
