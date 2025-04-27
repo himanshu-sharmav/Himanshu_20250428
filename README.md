@@ -1,55 +1,118 @@
 # Store Monitoring System
-A backend system for monitoring store online/offline status and generating reports.
+
+A robust backend system for monitoring store (restaurant) activity status and generating comprehensive reports about their uptime and downtime during business hours.
 
 ## Overview
-This system monitors restaurant activity status and generates reports about their uptime and downtime during business hours. It provides REST APIs to trigger report generation and retrieve the generated reports.
 
-## Features
-- Asynchronous report generation with trigger + poll architecture
-- Handles multiple time zones
-- Considers business hours for uptime/downtime calculation
-- Efficient data processing with batch operations
-- Robust error handling and data validation
+This system processes store activity data to track when stores are online or offline, considering their specific business hours and time zones. It provides a RESTful API interface to generate and retrieve reports about store activity metrics.
 
-## Tech Stack
-- Python 3.8+
-- Flask (Web Framework)
-- SQLAlchemy (ORM)
-- Pandas (Data Processing)
-- SQLite (Database)
+## Key Features
+
+- **Real-time Status Monitoring**
+  - Tracks store online/offline status
+  - Handles multiple time zones accurately
+  - Considers local business hours for each store
+
+- **Asynchronous Report Generation**
+  - Trigger + Poll architecture for non-blocking report generation
+  - Background processing with ThreadPoolExecutor
+  - Progress tracking and error handling
+
+- **Efficient Data Processing**
+  - Batch processing for large datasets
+  - In-memory SQLite database for fast operations
+  - Optimized timezone conversions
+
+- **Robust Error Handling**
+  - Comprehensive exception management
+  - Data validation and sanitization
+  - Detailed error reporting
+
+## Technical Architecture
+
+### Database Models
+
+1. **StoreStatus**
+   - Tracks store activity status
+   - Fields: store_id, timestamp_utc, status (active/inactive)
+
+2. **BusinessHours**
+   - Stores operating hours for each store
+   - Fields: store_id, day_of_week, start_time_local, end_time_local
+
+3. **StoreTimezone**
+   - Manages store timezone information
+   - Fields: store_id, timezone_str
+
+4. **Report**
+   - Tracks report generation status
+   - Fields: id, status (Running/Complete/Error), filename
+
+### API Endpoints
+
+1. **Trigger Report Generation**
+   ```
+   POST /trigger_report
+   
+   Response:
+   {
+       "report_id": "uuid-string"
+   }
+   ```
+
+2. **Get Report Status/Download**
+   ```
+   GET /get_report?report_id=<report_id>
+   
+   Responses:
+   - Running: {"status": "Running"}
+   - Complete: CSV file download
+   - Error: {"status": "Error"}
+   ```
+
+## Setup Instructions
+
+1. **Environment Setup**
+   ```bash
+   # Create and activate virtual environment (optional but recommended)
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   
+   # Install dependencies
+   pip install -r requirements.txt
+   ```
+
+2. **Data Preparation**
+   - Place `store-monitoring-data.zip` in the project root directory
+   - The zip file should contain:
+     - `store_status.csv`: Store activity logs
+     - `business_hours.csv`: Store operating hours
+     - `store_timezone.csv`: Store timezone information
+
+3. **Running the Application**
+   ```bash
+   python script.py
+   ```
+   The server will start on `http://localhost:5000`
+
+## Dependencies
+
+Flask==3.0.0
+Flask-SQLAlchemy==3.1.1
+pandas==2.1.1
+pytz==2024.1
+python-dotenv==1.0.1
+sqlalchemy==2.0.31
+sqlite3==3.43.0
 
 ## Project Structure
 
-
-store-monitoring/
+Himanshu_20250428/
 ├── script.py # Main application code
 ├── requirements.txt # Python dependencies
 ├── sample_output.csv # Sample report output
 ├── README.md # Documentation
 └── store-monitoring-data.zip # Input data
-
-
-## Setup and Running
-1. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-2. Place the data file `store-monitoring-data.zip` in the project directory
-
-3. Run the application:
-```bash
-python3 script.py
-```
-
-4. Test the APIs:
-```bash
-# Generate a report
-curl -X POST http://localhost:5000/trigger_report
-
-# Get report status/download (replace <report_id> with the ID received)
-curl http://localhost:5000/get_report?report_id=<report_id>
-```
 
 ## API Documentation
 
